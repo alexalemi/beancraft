@@ -1,0 +1,69 @@
+# The main environment for bins and beans.
+
+# An environment is a struct with some registers and some symbols defined.
+
+# instructions are :inc :deb and :end
+# :inc register next
+# :deb register next jmp
+# :end 
+
+(defdyn *MAX-STEPS*)
+(setdyn *MAX-STEPS* 10_000)
+
+(def empty-env
+  {:instructions {}   # table of labels to instructions.
+   :registers @{}     # register name to value.
+   :pointer :init     # current label.
+   :halted false})    # whether halted.
+
+(defn step
+  "Increment the environmet."
+  [env]
+  (let [{:halted halted 
+         :instructions instructions
+         :registers registers 
+         :pointer lbl 
+         :halted halted} env]
+    (if halted
+      env
+      (let [[inst reg nxt jmp] (get instructions lbl)]
+        (case inst
+          :inc (do (update registers reg inc)
+                   (put env :pointer nxt))
+          :deb (let [x (registers reg)]
+                 (if (> x 0)
+                   (do
+                     (update registers reg dec)
+                     (put env :pointer nxt))
+                   (put env :pointer jmp)))
+          :end (put env :halted true))))
+    env))
+
+(defn run
+  "Run until halted or max-steps."
+  [env &opt max-steps]
+  (default max-steps (dyn *MAX-STEPS*))
+  (var env env)
+  (var steps 0)
+  (while (and (not (env :halted)) 
+              (< steps max-steps)) 
+    (set env (step env))
+    (++ steps))
+  env)
+
+(defn clone [env]
+  @{:instructions (env :instructions)
+    :registers (table/clone (env :registers))
+    :pointer (env :pointer)
+    :halted (env :halted)})
+
+(comment
+  (def adder @{:instructions {:init [:deb :A :plus :end]
+                              :plus [:inc :B :init]
+                              :end [:end]}
+               :registers @{:A 5 :B 3} 
+               :pointer :init
+               :halted false})
+  [adder (run (clone adder))])
+
+
