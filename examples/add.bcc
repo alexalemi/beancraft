@@ -1,0 +1,8 @@
+# A simple add program
+# it will take the contents of register 1 and 2 
+# and add them into register 0
+0 deb 1 1 2
+1 inc 0 0 
+2 deb 2 3 4
+3 inc 0 2
+4 end

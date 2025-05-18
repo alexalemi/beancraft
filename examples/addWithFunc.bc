@@ -1,0 +1,17 @@
+# A version of add that uses a clear and copy func
+
+
+func clear A {
+    - A done self
+}
+
+func move A B {
+    # moves contents of A into B
+    - A done
+    + B prev
+}
+
+init: clear Out
+move A Out
+move B Out
+done

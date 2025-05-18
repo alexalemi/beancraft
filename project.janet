@@ -3,6 +3,8 @@
   :description ```A simple register machine. ```
   :version "0.0.0")
 
-(declare-source
+(declare-executable
   :prefix "beancraft"
-  :source ["beancraft/init.janet"])
+  :entry "beancraft/init.janet")
+
+

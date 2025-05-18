@@ -1,0 +1,20 @@
+# DEVLOG
+
+## 2025-05-18
+
+Looked at this again, we already have an environment, and a parser. Maybe janet
+is the way to go, as I could also compile a static executable and ship it.
+
+Right now I should probably build a thing that will parse and run a file with 
+basic support.
+
+Today I realized that I don't think I need a separate keyword for functions and
+loading, I can just make each function its own file, then I just need a way to
+override the names of all of the registers, or scope them or something.
+
+    %load filename:scope reg:alias reg2:alias2
+
+This would load the filename and give it a scope `scope` for all of its
+registers, and the optional things afterward would let you alias the registers
+to existing names.
+
