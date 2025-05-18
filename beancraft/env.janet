@@ -19,8 +19,7 @@
 (defn step
   "Increment the environmet."
   [env]
-  (let [{:halted halted 
-         :instructions instructions
+  (let [{:instructions instructions
          :registers registers 
          :pointer lbl 
          :halted halted} env]
