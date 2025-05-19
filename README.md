@@ -1,5 +1,7 @@
 # beancraft
 
+WORK IN PROGRESS
+
 I want to make a nice compiler and environment for bins and beans, in Odin.
 
 The aim of this repo is to provide an implementation of a register machine language and environment for teaching purposes.
@@ -27,7 +29,3 @@ To illustrate the power of this register machine, this repository implements a v
  - prime checker
  - gcd
 
-
-## Grammar
-
-Let's try to design the language
