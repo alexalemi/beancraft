@@ -2,18 +2,27 @@
 
 (use ./parse)
 (use ./env)
+(use spork)
 
 (defn main
   [& args]
   (let [fname (get args 1)
         f (file/open fname :r)
         content (file/read f :all)
-        program (compile content)]
+        program (compile content (path/dirname fname))]
     (each arg (slice args 2)
       (let [[reg val] (string/split ":" arg)]
         (set ((program :registers) reg) (scan-number val))))
 
-    (eachp [reg val] (get (run (clone program)) :registers)
+    (pp program)
+    (print)
+
+    (def final (run (clone program)))
+
+    (pp final)
+    (print)
+
+    (eachp [reg val] (get final :registers)
       (prin reg)
       (prin ":")
       (print val))))

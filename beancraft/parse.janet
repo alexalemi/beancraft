@@ -10,7 +10,7 @@
 
 (use spork)
 
-(def BEANCRAFT-ROOT (os/getenv "BEANCRAFTROOT" "/home/alemi/projects/beancraft/examples/"))
+(def BEANCRAFT-ROOT (os/getenv "BEANCRAFTROOT" "~/.beancraft/"))
 
 (def grammar
   ~{:commands (+ "load" "func")
@@ -63,6 +63,12 @@
   "Add a final halt to the end of the program"
   [program]
   (array/push (get program :instructions) [:end])
+  program)
+
+(defn add-nil
+  "Add a final halt to the end of the program"
+  [program]
+  (set ((get program :registers) :nil) 0)
   program)
 
 (defn replace-jumps
@@ -120,25 +126,26 @@
   [flname root loc start scope regs labels original-labels]
   (default scope (string flname "-" loc))
   (let [path (path/join root (string flname ".bc"))]
+    (print "Loading " path)
     (-> (slurp path)
         parse
         (replace-registers scope (table ;regs))
         (read-labels-and-registers start)
         (replace-labels (table ;labels) original-labels)
         (replace-jumps start (inc loc))
-        (add-done loc)
-        (replace-use path start))))
+        (add-done loc))))
+        #(replace-use path start))))
 
 (defn replace-use
   "Replace all of the use commands"
   [program path &opt offset]
   (default offset 0)
   (let [{:instructions instructions :labels labels :registers registers} program
-        extra-labels (merge labels {:done :done :halt :halt}) 
-        start (+ (length instructions) offset)]
+        extra-labels (merge labels {:done :done :halt :halt})] 
     (eachp [i [inst flname scope regs lbs]] instructions
       (when (= inst :use)
-        (let [{:instructions use-instructions :labels use-labels :registers use-registers} (compile-use flname path i start scope regs lbs labels)]
+        (let [start (+ (length instructions) offset)
+              {:instructions use-instructions :labels use-labels :registers use-registers} (compile-use flname path i start scope regs lbs labels)]
           (put instructions i [:deb :nil start start])
           (array/join instructions use-instructions)
           # (merge-into labels use-labels)
@@ -162,7 +169,8 @@
       # replace the use commands
       (replace-use path)
       # final program halt
-      add-halt)) 
+      add-halt 
+      add-nil))
 
     
 
@@ -172,6 +180,11 @@
 init: - A end
 + B init`))
 
+(comment
+  (compile `# This is a comment
+use "add"
+init: - A end
++ B init` "/home/alemi/projects/beancraft/examples/"))
 
 
 (comment

@@ -1,4 +1,4 @@
 # A version of add that uses a clear and copy func
-use: clear A:Out
-use: move From:A To:Out 
-use: move From:B To:Out
+use "clear" A=Out
+use "move" From=A To=Out 
+use "move" From=B To=Out
