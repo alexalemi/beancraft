@@ -29,3 +29,22 @@ To illustrate the power of this register machine, this repository implements a v
  - prime checker
  - gcd
 
+
+# Grammar
+
+The grammar takes the form:
+
+# comment
+label: use "flname":scope reg=alias reg2=alias2 label~newLabel label2~newLabel2
+label: end
+label: inc next
+label: deb jump next
+
+The labels are optional.
+
+For increment, if you leave off the next, its assumed to be the next instruction.
+For deb, if you leave off the next, its assumed to be the next instruction.
+
+There are special keywords: self, next, prev, done, halt, init
+
+For the 'next's, you can also use +n or -n, which jumps that many instructions forward or back.

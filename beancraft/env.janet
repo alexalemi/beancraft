@@ -4,7 +4,7 @@
 
 # instructions are :inc :deb and :end
 # :inc register next
-# :deb register next jmp
+# :deb register jump next
 # :end 
 
 (defdyn *MAX-STEPS*)
@@ -27,16 +27,18 @@
          :halted halted} env]
     (if halted
       env
-      (let [[inst reg nxt jmp] (get instructions lbl)]
+      (let [[inst reg a b] (get instructions lbl)]
         (case inst
           :inc (do (update registers reg inc)
-                   (put env :pointer nxt))
+                   (put env :pointer a))
           :deb (let [x (registers reg)]
                  (if (> x 0)
+                   # its positive, so decrement and goto next=b
                    (do
                      (update registers reg dec)
-                     (put env :pointer nxt))
-                   (put env :pointer jmp)))
+                     (put env :pointer b))
+                   # jump to a
+                   (put env :pointer a)))
           :end (put env :halted true))))
     env))
 

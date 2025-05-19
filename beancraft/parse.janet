@@ -4,7 +4,13 @@
 # [ label :end ]
 # [ label :inc register next ]
 # [ label :dec register jump next ]
+
+# label: use "flname":scope reg=alias reg2=alias2 label~newlabel label2~newlabel2
 # [ label :use flname scope  reg alias  reg2 alias2 ]
+
+(use spork)
+
+(def BEANCRAFT-ROOT (os/getenv "BEANCRAFTROOT" "/home/alemi/projects/beancraft/examples/"))
 
 (def grammar
   ~{:commands (+ "load" "func")
@@ -19,8 +25,9 @@
     :inc (* (+ "inc" "+") (constant :inc) :space :register :space (+ :jump :none) :space)
     :deb (* (+ "deb" "-") (constant :deb) :space :register :space :jump :space (+ :jump :none) :space)
     :end (* (+ "end" ".") (constant :end) :space)
-    :use (* (+ "use" "%") (constant :use) :space "\"" (<- :filename) "\"" (+ (* ":" (<- :name)) :none) (any (* :space :register ":" :register)) :space)
-    :label (* :space (<- :name) ":" :space)
+    :use (* (+ "use" "%") (constant :use) :space "\"" (<- :filename) "\"" (+ (* ":" (<- :name)) :none) (group (any (* :space :register "=" :register))) (group (any (* :space :labelName "~" :labelName))) :space)
+    :labelName (<- :name)
+    :label (* :space :labelName ":" :space)
     :newline (+ -1 "\n")
     :filename (some (if-not (set " \t\r\n\0\f\v\"\'") 1))
     :line (group (* (+ :label :none) (+ :inc :deb :end :use) :newline))
@@ -35,21 +42,22 @@
 
 (defn read-labels-and-registers
   "Pull out all of the labels and registers and flatten the instructions."
-  [instructions]
+  [instructions &opt start]
+  (default start 0)
   (let [labels @{}
         registers @{}
         program @[]]
     (eachp [i [lbl inst & more]] instructions
-      (when lbl (set (labels lbl) (length program)))
+      (when lbl (set (labels lbl) (+ start (length program))))
       (when (not= inst :use)
         (let [[reg & rest] more]
           (when reg (set (registers reg) 0))))
       (array/push program [inst ;more]))
-    {:labels labels
-     :registers registers
-     :instructions program
-     :pointer 0
-     :halted false}))
+    @{:labels labels
+      :registers registers
+      :instructions program
+      :pointer 0
+      :halted false}))
 
 (defn add-halt
   "Add a final halt to the end of the program"
@@ -59,27 +67,90 @@
 
 (defn replace-jumps
   "Replace the jumps with absolute positions for moves, addresses for labels and relatant positions for labels."
-  [program]
-  (let [{:instructions instructions :labels labels} program
-        extra-labels (merge labels {:done :done :halt :halt})] 
-    (eachp [i [inst reg nxt jmp]] instructions
-      (let [extra-labels (merge labels {:done (length instructions) :halt (dec (length instructions)) :end (dec (length instructions)) :next (inc i) nil (inc i) :prev (dec i) :self i :init 0})]
+  [program &opt init done halt]
+  (let [{:instructions instructions :labels labels} program]
+    (default init 0)
+    (default done (length instructions))
+    (default halt (dec (length instructions)))
+    (eachp [i [inst reg a b]] instructions
+      (let [me (+ i init)
+            extra-labels (merge labels {:done done :halt halt :end halt :init init
+                                        :next (inc me) nil (inc me) :prev (dec me) :self me})]
         (case inst
-          :inc (if nxt
-                 (put instructions i [inst reg (if (number? nxt) (+ i nxt) (get extra-labels nxt))])
-                 (put instructions i [inst reg (inc i)]))
-          :deb (if jmp
-                 (put instructions i [inst reg (if (number? nxt) (+ i nxt) (get extra-labels nxt)) (if (number? jmp) (+ i jmp) (get extra-labels jmp))])
-                 (if nxt
-                   (put instructions i [inst reg (inc i) (if (number? nxt) (+ i nxt) (get extra-labels nxt))])
-                   (put instructions i [inst reg (inc i) (get extra-labels :halt)]))))))
+          :inc (if a
+                 # if we have an explicit next, set it
+                 (put instructions i [inst reg (if (number? a) (+ me a) (get extra-labels a))])
+                 # otherwise goto next by default
+                 (put instructions i [inst reg (inc me)]))
+          :deb (if b
+                 # deb with two instructions, treat them as jmp then nxt
+                 (put instructions i [inst reg (if (number? a) (+ me a) (get extra-labels a)) (if (number? b) (+ me b) (get extra-labels b))])
+                 # otherwise only one argument, treat it as the jmp
+                 (put instructions i [inst reg (if (number? a) (+ me a) (get extra-labels a)) (inc me)])))))
+    program))
+
+(defn add-done
+  "Add a final jump to the end of the program for done"
+  [program loc]
+  (array/push (get program :instructions) [:deb :nil loc loc])
+  program)
+
+(defn replace-labels
+  "Inside a use, reroute the given labels to original."
+  [program labels original-labels]
+  (let [{:labels program-labels} program]
+    (eachk lbl program-labels
+      (when (get labels lbl)
+        (set (program-labels lbl) (get original-labels (get labels lbl))))))
+  program)
+
+(defn replace-registers
+  "Before we do the rest of the parsing, go and replace the registers with either their target or a scoped version."
+  [instructions scope registers]
+  (eachp [i [lbl inst reg & more]] instructions
+    (case inst
+      :inc (put instructions i [lbl inst (if (get registers reg) (get registers reg) (string scope "/" reg)) ;more])
+      :deb (put instructions i [lbl inst (if (get registers reg) (get registers reg) (string scope "/" reg)) ;more])))
+  instructions)
+
+(defn replace-use [program path &opt offset])
+
+(defn compile-use
+  "Compiler passes for a use command." 
+  [flname root loc start scope regs labels original-labels]
+  (default scope (string flname "-" loc))
+  (let [path (path/join root (string flname ".bc"))]
+    (-> (slurp path)
+        parse
+        (replace-registers scope (table ;regs))
+        (read-labels-and-registers start)
+        (replace-labels (table ;labels) original-labels)
+        (replace-jumps start (inc loc))
+        (add-done loc)
+        (replace-use path start))))
+
+(defn replace-use
+  "Replace all of the use commands"
+  [program path &opt offset]
+  (default offset 0)
+  (let [{:instructions instructions :labels labels :registers registers} program
+        extra-labels (merge labels {:done :done :halt :halt}) 
+        start (+ (length instructions) offset)]
+    (eachp [i [inst flname scope regs lbs]] instructions
+      (when (= inst :use)
+        (let [{:instructions use-instructions :labels use-labels :registers use-registers} (compile-use flname path i start scope regs lbs labels)]
+          (put instructions i [:deb :nil start start])
+          (array/join instructions use-instructions)
+          # (merge-into labels use-labels)
+          (merge-into registers use-registers))))
     program))
 
 (defn compile
   "Compiler passes
   
   Takes a sugar version and compiles to a simple program."
-  [s]
+  [s &opt path]
+  (default path BEANCRAFT-ROOT)
   (-> s
       parse
       # first read out all of the labels and registers
@@ -88,10 +159,11 @@
       add-halt 
       # replace the relative addresses, keywords and labels
       replace-jumps
-
+      # replace the use commands
+      (replace-use path)
       # final program halt
       add-halt)) 
-    
+
     
 
 (comment
@@ -100,13 +172,6 @@
 init: - A end
 + B init`))
 
-(comment
-  (compile `use "other.bb":foo a:b c:d e:f 0:1 3:foo
-deb 1 +1 +2
-inc 0 -1
-deb 2 +1 done
-inc 0 -2
-end`))
 
 
 (comment
