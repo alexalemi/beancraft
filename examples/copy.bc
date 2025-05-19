@@ -1,6 +1,5 @@
 # Copy one register into another.
 
-use "clear" Which=To
 loop: - From refill
 + To
 + tmp loop

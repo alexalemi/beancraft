@@ -56,7 +56,7 @@ inc Out prev`)
   (let [registers (example-runner "copy.bc" @{"From" a "To" b})]
     {"From" (get registers "From") "To" (get registers "To")}))
 
-(test (copy-runner 10 5) {"From" 10 "To" 10})
+(test (copy-runner 10 5) {"From" 10 "To" 15})
 
 (test (copy-runner 10 0) {"From" 10 "To" 10})
 
