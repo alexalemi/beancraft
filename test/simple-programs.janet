@@ -51,3 +51,13 @@ inc Out prev`)
 (test (test-addWithFunc 10 10) 20)
 
 (test ((example-runner "addWithFunc.bc" @{"A" 3 "B" 4 "Out" 5}) "Out") 7)
+
+(defn copy-runner [a b]
+  (let [registers (example-runner "copy.bc" @{"From" a "To" b})]
+    {"From" (get registers "From") "To" (get registers "To")}))
+
+(test (copy-runner 10 5) {"From" 10 "To" 10})
+
+(test (copy-runner 10 0) {"From" 10 "To" 10})
+
+(test (copy-runner 13 0) {"From" 13 "To" 13})

@@ -1,7 +1,7 @@
 # Copy one register into another.
 
-init: - From refill
+use "clear" Which=To
+loop: - From refill
 + To
-+ tmp init
-refill: - tmp done
-+ From prev
++ tmp loop
+refill: use "move" From=tmp To=From

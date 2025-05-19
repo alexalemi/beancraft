@@ -134,7 +134,7 @@
         (replace-labels (table ;labels) original-labels)
         (replace-jumps start (inc loc))
         (add-done loc))))
-        #(replace-use path start))))
+        # (replace-use path start))))
 
 (defn replace-use
   "Replace all of the use commands"
