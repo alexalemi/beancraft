@@ -11,7 +11,7 @@
         content (file/read f :all)
         program (compile content (path/dirname fname))]
     (each arg (slice args 2)
-      (let [[reg val] (string/split ":" arg)]
+      (let [[reg val] (string/split "=" arg)]
         (set ((program :registers) reg) (scan-number val))))
 
     (print)

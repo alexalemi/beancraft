@@ -1,0 +1,7 @@
+# Copy one register into another.
+
+init: - From refill
++ To
++ tmp init
+refill: - tmp done
++ From prev

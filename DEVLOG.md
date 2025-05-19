@@ -25,3 +25,8 @@ I've written a version of the parser that converts a program to a simple
 unambiguous version with a few passes. I still have to implement the use, but I
 think it should be relatively simple given the way I've composed things. I also
 need to switch over the to the bignums.
+
+Alright, I think I've got something that can load things, tried out some test programs
+and for some of the more complicated ones I've getting strange errors.
+
+The issue seems to be with the `done` handling, at least I think.
