@@ -23,23 +23,85 @@
     :label (* :space (<- :name) ":" :space)
     :newline (+ -1 "\n")
     :filename (some (if-not (set " \t\r\n\0\f\v\"\'") 1))
-    :line (group (* (+ :label (line)) (+ :inc :deb :end :use) :newline))
+    :line (group (* (+ :label :none) (+ :inc :deb :end :use) :newline))
     :comment (* "#" (some (if-not "\n" 1)) :newline)
     :main (some (+ :comment :newline :line))})
 
+
 (defn parse
-  "Top level parse function"
+  "Top level read of program."
   [s]
   (peg/match grammar s))
 
+(defn read-labels-and-registers
+  "Pull out all of the labels and registers and flatten the instructions."
+  [instructions]
+  (let [labels @{}
+        registers @{}
+        program @[]]
+    (eachp [i [lbl inst & more]] instructions
+      (when lbl (set (labels lbl) (length program)))
+      (when (not= inst :use)
+        (let [[reg & rest] more]
+          (when reg (set (registers reg) 0))))
+      (array/push program [inst ;more]))
+    {:labels labels
+     :registers registers
+     :instructions program
+     :pointer 0
+     :halted false}))
+
+(defn add-halt
+  "Add a final halt to the end of the program"
+  [program]
+  (array/push (get program :instructions) [:end])
+  program)
+
+(defn replace-jumps
+  "Replace the jumps with absolute positions for moves, addresses for labels and relatant positions for labels."
+  [program]
+  (let [{:instructions instructions :labels labels} program
+        extra-labels (merge labels {:done :done :halt :halt})] 
+    (eachp [i [inst reg nxt jmp]] instructions
+      (let [extra-labels (merge labels {:done (length instructions) :halt (dec (length instructions)) :end (dec (length instructions)) :next (inc i) nil (inc i) :prev (dec i) :self i :init 0})]
+        (case inst
+          :inc (if nxt
+                 (put instructions i [inst reg (if (number? nxt) (+ i nxt) (get extra-labels nxt))])
+                 (put instructions i [inst reg (inc i)]))
+          :deb (if jmp
+                 (put instructions i [inst reg (if (number? nxt) (+ i nxt) (get extra-labels nxt)) (if (number? jmp) (+ i jmp) (get extra-labels jmp))])
+                 (if nxt
+                   (put instructions i [inst reg (inc i) (if (number? nxt) (+ i nxt) (get extra-labels nxt))])
+                   (put instructions i [inst reg (inc i) (get extra-labels :halt)]))))))
+    program))
+
+(defn compile
+  "Compiler passes
+  
+  Takes a sugar version and compiles to a simple program."
+  [s]
+  (-> s
+      parse
+      # first read out all of the labels and registers
+      read-labels-and-registers
+      # ensure each block ends with a halt
+      add-halt 
+      # replace the relative addresses, keywords and labels
+      replace-jumps
+
+      # final program halt
+      add-halt)) 
+    
+    
+
 (comment
-  (parse `# This is a comment
+  (compile `# This is a comment
 
 init: - A end
 + B init`))
 
 (comment
-  (parse `use "other.bb":foo a:b c:d e:f 0:1 3:foo
+  (compile `use "other.bb":foo a:b c:d e:f 0:1 3:foo
 deb 1 +1 +2
 inc 0 -1
 deb 2 +1 done
@@ -48,7 +110,7 @@ end`))
 
 
 (comment
-  (parse `# A better syntax version of the add machine
+  (compile `# A better syntax version of the add machine
 # this moves the contents of A and B into the Out register.
 
 init: - A copyB

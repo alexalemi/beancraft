@@ -11,15 +11,17 @@
 (setdyn *MAX-STEPS* 10_000)
 
 (def empty-env
-  {:instructions {}   # table of labels to instructions.
+  {:instructions []   # array of instructions
+   :labels {}         # table from name to instruction
    :registers @{}     # register name to value.
-   :pointer :init     # current label.
+   :pointer 0         # current instruction
    :halted false})    # whether halted.
 
 (defn step
   "Increment the environmet."
   [env]
   (let [{:instructions instructions
+         :labels labels
          :registers registers 
          :pointer lbl 
          :halted halted} env]
@@ -57,11 +59,9 @@
     :halted (env :halted)})
 
 (comment
-  (def adder @{:instructions {:init [:deb :A :plus :end]
-                              :plus [:inc :B :init]
-                              :end [:end]}
+  (def adder @{:instructions [[:deb :A 1 2] [:inc :B 0] [:end]]
                :registers @{:A 5 :B 3} 
-               :pointer :init
+               :pointer 0
                :halted false})
   [adder (run (clone adder))])
 
