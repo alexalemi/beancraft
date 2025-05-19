@@ -14,13 +14,18 @@
       (let [[reg val] (string/split ":" arg)]
         (set ((program :registers) reg) (scan-number val))))
 
-    (pp program)
     (print)
+    (print "Final compiled program:")
+    (eachp [i inst] (get program :instructions)
+      (prin i " ")
+      (each k inst
+        (prin k " "))
+      (print))
 
     (def final (run (clone program)))
 
-    (pp final)
     (print)
+    (print "Final Registers:")
 
     (eachp [reg val] (get final :registers)
       (prin reg)
