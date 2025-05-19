@@ -126,7 +126,7 @@
   [flname root loc start scope regs labels original-labels]
   (default scope (string flname "-" loc))
   (let [path (path/join root (string flname ".bc"))]
-    (print "Loading " path)
+    # (print "Loading " path)
     (-> (slurp path)
         parse
         (replace-registers scope (table ;regs))

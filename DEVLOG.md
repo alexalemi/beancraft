@@ -1,5 +1,11 @@
 # DEVLOG
 
+## 2025-05-19
+
+Started writing the tests with judge to test out simple programs.  Looks like
+right now I've disabled the recursive `compile-use` which is likely the
+problem.  Should revisit that.
+
 ## 2025-05-18
 
 Looked at this again, we already have an environment, and a parser. Maybe janet
