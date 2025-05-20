@@ -1,4 +1,6 @@
 # Multiply two numbers together
 
-init: - B halt
-use "copy" From=A To=Out exit~init
+init: - B clr
+use "copy" From=A To=Out 
+deb nil init init
+clr: - A halt self
