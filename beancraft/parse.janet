@@ -80,8 +80,8 @@
     (default halt (dec (length instructions)))
     (eachp [i [inst reg a b]] instructions
       (let [me (+ i init)
-            extra-labels (merge labels {:done done :halt halt :end halt :init init
-                                        :next (inc me) nil (inc me) :prev (dec me) :self me})]
+            extra-labels (merge {:done done :halt halt :end halt :init init
+                                 :next (inc me) nil (inc me) :prev (dec me) :self me} labels)]
         (case inst
           :inc (if a
                  # if we have an explicit next, set it
@@ -119,22 +119,19 @@
       :deb (put instructions i [lbl inst (if (get registers reg) (get registers reg) (string scope "/" reg)) ;more])))
   instructions)
 
-(defn replace-use [program path &opt offset])
-
 (defn compile-use
   "Compiler passes for a use command." 
-  [flname root loc start scope regs labels original-labels]
+  [flname root loc start scope regs labels original-labels replace-use]
   (default scope (string flname "-" loc))
   (let [path (path/join root (string flname ".bc"))]
-    # (print "Loading " path)
     (-> (slurp path)
         parse
         (replace-registers scope (table ;regs))
         (read-labels-and-registers start)
         (replace-labels (table ;labels) original-labels)
         (replace-jumps start (inc loc))
-        (add-done loc))))
-        # (replace-use path start))))
+        (add-done loc)
+        (replace-use root start))))
 
 (defn replace-use
   "Replace all of the use commands"
@@ -145,10 +142,10 @@
     (eachp [i [inst flname scope regs lbs]] instructions
       (when (= inst :use)
         (let [start (+ (length instructions) offset)
-              {:instructions use-instructions :labels use-labels :registers use-registers} (compile-use flname path i start scope regs lbs labels)]
+              {:instructions use-instructions :labels use-labels :registers use-registers} (compile-use flname path (+ i offset) start scope regs lbs labels replace-use)]
           (put instructions i [:deb :nil start start])
           (array/join instructions use-instructions)
-          # (merge-into labels use-labels)
+          (merge-into labels use-labels)
           (merge-into registers use-registers))))
     program))
 

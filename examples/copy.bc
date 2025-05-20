@@ -3,4 +3,5 @@
 loop: - From refill
 + To
 + tmp loop
-refill: use "move" From=tmp To=From
+refill: - tmp done
++ From prev

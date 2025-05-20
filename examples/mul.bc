@@ -1,4 +1,4 @@
 # Multiply two numbers together
 
 init: - B halt
-use "copy" From=A To=Out done~init
+use "copy" From=A To=Out exit~init
