@@ -4,7 +4,7 @@
   :version "0.0.0")
 
 (declare-executable
-  :prefix "beancraft"
+  :name "beancraft"
   :entry "beancraft/init.janet")
 
 

@@ -1,5 +1,11 @@
 # DEVLOG
 
+## 2025-05-28
+
+I should make it so that when you import a file you can set the registers, that
+would clean things up nicely.  I should work quickly towards the universal
+register machine.
+
 ## 2025-05-19
 
 Started writing the tests with judge to test out simple programs.  Looks like
