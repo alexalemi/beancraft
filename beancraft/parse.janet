@@ -119,15 +119,37 @@
       :deb (put instructions i [lbl inst (if (get registers reg) (get registers reg) (string scope "/" reg)) ;more])))
   instructions)
 
+(defn separate-regs-and-values
+  "Separate register aliases from initial values"
+  [regs]
+  (let [aliases @[]
+        values @[]]
+    (each [reg-name value] (partition 2 regs)
+      (if (number? value)
+        (array/push values reg-name value)
+        (array/push aliases reg-name value)))
+    [aliases values]))
+
+(defn set-initial-values
+  "Set initial values for registers when the mapping value is a number"
+  [program values scope]
+  (let [{:registers registers} program]
+    (each [reg-name value] (partition 2 values)
+      (let [scoped-reg (string scope "/" reg-name)]
+        (set (registers scoped-reg) value))))
+  program)
+
 (defn compile-use
   "Compiler passes for a use command." 
   [flname root loc start scope regs labels original-labels replace-use]
   (default scope (string flname "-" loc))
-  (let [path (path/join root (string flname ".bc"))]
+  (let [path (path/join root (string flname ".bc"))
+        [aliases values] (separate-regs-and-values regs)]
     (-> (slurp path)
         parse
-        (replace-registers scope (table ;regs))
+        (replace-registers scope (table ;aliases))
         (read-labels-and-registers start)
+        (set-initial-values values scope)
         (replace-labels (table ;labels) original-labels)
         (replace-jumps start (inc loc))
         (add-done loc)
@@ -170,16 +192,15 @@
       add-nil))
 
     
-
 (comment
   (compile `# This is a comment
-
+use "add" A=3
 init: - A end
 + B init`))
 
 (comment
   (compile `# This is a comment
-use "add"
+use "add" A=3
 init: - A end
 + B init` "/home/alemi/projects/beancraft/examples/"))
 
