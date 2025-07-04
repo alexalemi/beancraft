@@ -2,7 +2,7 @@
 
 WORK IN PROGRESS
 
-I want to make a nice compiler and environment for bins and beans, in Odin.
+I want to make a nice compiler and environment for bins and beans, in Janet.
 
 The aim of this repo is to provide an implementation of a register machine language and environment for teaching purposes.
 
