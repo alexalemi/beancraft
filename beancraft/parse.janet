@@ -9,6 +9,7 @@
 # [ label :use flname scope  reg alias  reg2 alias2 ]
 
 (use spork)
+(use judge)
 
 (def BEANCRAFT-ROOT (os/getenv "BEANCRAFTROOT" "~/.beancraft/"))
 
@@ -16,7 +17,7 @@
   ~{:commands (+ "load" "func")
     :keyword (+ "self" "next" "prev" "init" "done" "halt" "end")
     :name (some :w)
-    :space (any (set " \t\r\0\f\v")) 
+    :space (any (set " \t\r\0\f\v"))
     :number (some :d)
     :move (* (+ "+" "-") (some :d))
     :register (+ (number :number) (<- :name))
@@ -39,6 +40,9 @@
   "Top level read of program."
   [s]
   (peg/match grammar s))
+
+
+(test parse @parse)
 
 (defn read-labels-and-registers
   "Pull out all of the labels and registers and flatten the instructions."
@@ -140,7 +144,7 @@
   program)
 
 (defn compile-use
-  "Compiler passes for a use command." 
+  "Compiler passes for a use command."
   [flname root loc start scope regs labels original-labels replace-use]
   (default scope (string flname "-" loc))
   (let [path (path/join root (string flname ".bc"))
@@ -160,7 +164,7 @@
   [program path &opt offset]
   (default offset 0)
   (let [{:instructions instructions :labels labels :registers registers} program
-        extra-labels (merge labels {:done :done :halt :halt})] 
+        extra-labels (merge labels {:done :done :halt :halt})]
     (eachp [i [inst flname scope regs lbs]] instructions
       (when (= inst :use)
         (let [start (+ (length instructions) offset)
@@ -182,30 +186,52 @@
       # first read out all of the labels and registers
       read-labels-and-registers
       # ensure each block ends with a halt
-      add-halt 
+      add-halt
       # replace the relative addresses, keywords and labels
       replace-jumps
       # replace the use commands
       (replace-use path)
       # final program halt
-      add-halt 
+      add-halt
       add-nil))
 
-    
-(comment
+
+(test
+  (parse `# This is a comment
+use "add" A=3
+init: - A end
++ B init`)
+  @[@[nil :use "add" nil @["A" 3] @[]]
+    @["init" :deb "A" :end nil]
+    @[nil :inc "B" :init]])
+
+(test
   (compile `# This is a comment
 use "add" A=3
 init: - A end
-+ B init`))
++ B init` "/home/alemi/projects/beancraft/examples/")
+  @{:halted false
+    :instructions @[[:deb :nil 4 4]
+                    [:deb "A" 3 2]
+                    [:inc "B" 0]
+                    [:end]
+                    [:deb "add-0/A" 6 5]
+                    [:inc "add-0/Out" 4]
+                    [:deb "add-0/B" 1 7]
+                    [:inc "add-0/Out" 6]
+                    [:deb :nil 0 0]
+                    [:end]]
+    :labels @{"copyB" 6 "init" 4}
+    :pointer 0
+    :registers @{"A" 0
+                 "B" 0
+                 "add-0/A" 3
+                 "add-0/B" 0
+                 "add-0/Out" 0
+                 :nil 0}})
 
-(comment
-  (compile `# This is a comment
-use "add" A=3
-init: - A end
-+ B init` "/home/alemi/projects/beancraft/examples/"))
 
-
-(comment
+(test
   (compile `# A better syntax version of the add machine
 # this moves the contents of A and B into the Out register.
 
@@ -213,4 +239,14 @@ init: - A copyB
 + Out prev
 
 copyB: - B done
-+ Out prev`))
++ Out prev`)
+  @{:halted false
+    :instructions @[[:deb "A" 2 1]
+                    [:inc "Out" 0]
+                    [:deb "B" 5 3]
+                    [:inc "Out" 2]
+                    [:end]
+                    [:end]]
+    :labels @{"copyB" 2 "init" 0}
+    :pointer 0
+    :registers @{"A" 0 "B" 0 "Out" 0 :nil 0}})

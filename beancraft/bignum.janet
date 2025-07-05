@@ -11,7 +11,6 @@
 (defn zero [] (bignum/new))
 
 (test (zero) @"\0")
-(test (bignum/new) @"\0")
 
 
 (defn bignum/inc
@@ -66,8 +65,8 @@
   (def n (length x))
   (for i 0 (length x)
     (if (> (get x i) 0)
-       (set trailing-zeros 0)
-       (++ trailing-zeros)))
+      (set trailing-zeros 0)
+      (++ trailing-zeros)))
   (buffer/popn x (min (dec n) trailing-zeros)))
 
 (defn bignum/from-num [num]
@@ -88,13 +87,13 @@
 
 (test (bignum/digits (zero)) @[0])
 (test (bignum/digits (bignum/inc (zero))) @[1])
-(test 
+(test
   (let [x (zero)] (for i 0 250 (bignum/inc x)) (bignum/digits x))
   @[250])
-(test 
+(test
   (let [x (zero)] (for i 0 256 (bignum/inc x)) (bignum/digits x))
   @[0 1])
-(test 
+(test
   (let [x (zero)] (for i 0 257 (bignum/inc x)) (bignum/digits x))
   @[1 1])
 (test (bignum/digits (bignum/dec (bignum/from-num 256))) @[255])
@@ -117,7 +116,7 @@
     (buffer/push-byte z carry))
   z)
 
-     
+
 (defn bignum/add
   "Add bignums together"
   [& xs]
@@ -143,7 +142,7 @@
   (reduce2 bignum/-sub2 xs))
 
 (test (bignum/digits (bignum/trim (zero))) @[0])
-  
+
 (defn bignum/to-num [x]
   (defn convert [digs num]
     (let [[lo & rest] digs]
@@ -156,7 +155,7 @@
 (test (bignum/to-num (bignum/from-num 0)) 0)
 (test (bignum/to-num (bignum/from-num 123456789)) 123456789)
 
-  
+
 (test (bignum/to-num (bignum/-add2 (bignum/from-num 123)
-                                  (bignum/from-num 321)))
-  444)
+                                   (bignum/from-num 321)))
+      444)
