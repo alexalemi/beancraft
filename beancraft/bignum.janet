@@ -3,10 +3,15 @@
 # We are going to represent numbers essentially in base 256 as byte arrays.
 # We'll put the least significant bit first.
 
+(use judge)
+
 (defn bignum/new []
   (buffer/new-filled 1))
 
 (defn zero [] (bignum/new))
+
+(test (zero) @"\0")
+(test (bignum/new) @"\0")
 
 
 (defn bignum/inc
@@ -22,6 +27,9 @@
         (set (x loc) (inc val)))))
   (inc-at 0)
   x)
+
+(test (bignum/inc (zero)) @"\x01")
+(test (bignum/inc (bignum/inc (zero))) @"\x02")
 
 (defn bignum/dec
   "Decrement the bignum."
@@ -51,6 +59,8 @@
           x))))
   (dec-at 0))
 
+(test (bignum/dec (bignum/inc (zero))) nil)
+
 (defn bignum/trim [x]
   (var trailing-zeros 0)
   (def n (length x))
@@ -66,12 +76,31 @@
     (bignum/trim x)
     x))
 
+(test (bignum/from-num 1000) @"\xE8\x03")
+
 (defn bignum/= [x y]
   (deep= x y))
 
 (defn bignum/digits [x]
   (seq [i :range [0 (length x)]]
     (get x i)))
+
+
+(test (bignum/digits (zero)) @[0])
+(test (bignum/digits (bignum/inc (zero))) @[1])
+(test 
+  (let [x (zero)] (for i 0 250 (bignum/inc x)) (bignum/digits x))
+  @[250])
+(test 
+  (let [x (zero)] (for i 0 256 (bignum/inc x)) (bignum/digits x))
+  @[0 1])
+(test 
+  (let [x (zero)] (for i 0 257 (bignum/inc x)) (bignum/digits x))
+  @[1 1])
+(test (bignum/digits (bignum/dec (bignum/from-num 256))) @[255])
+
+(test (bignum/digits (bignum/from-num 1000)) @[232 3])
+(test (bignum/digits (bignum/inc (bignum/from-num 1000))) @[233 3])
 
 (defn bignum/-add2
   "Add two bignums together"
@@ -87,6 +116,7 @@
   (when (> carry 0)
     (buffer/push-byte z carry))
   z)
+
      
 (defn bignum/add
   "Add bignums together"
@@ -112,6 +142,21 @@
   [& xs]
   (reduce2 bignum/-sub2 xs))
 
-(comment
-  (bignum/digits (bignum/trim (zero))))
+(test (bignum/digits (bignum/trim (zero))) @[0])
+  
+(defn bignum/to-num [x]
+  (defn convert [digs num]
+    (let [[lo & rest] digs]
+      (if (empty? digs) num
+        (convert rest (+ lo (* 256 num))))))
+  (convert (reverse (bignum/digits x)) 0))
 
+(test (bignum/to-num (bignum/from-num 1000)) 1000)
+(test (bignum/to-num (bignum/from-num 10)) 10)
+(test (bignum/to-num (bignum/from-num 0)) 0)
+(test (bignum/to-num (bignum/from-num 123456789)) 123456789)
+
+  
+(test (bignum/to-num (bignum/-add2 (bignum/from-num 123)
+                                  (bignum/from-num 321)))
+  444)
