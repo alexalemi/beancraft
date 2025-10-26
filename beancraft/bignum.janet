@@ -5,6 +5,10 @@
 
 (use judge)
 
+# Constants for bignum arithmetic
+(def BIGNUM-BASE 256)
+(def BIGNUM-MAX-BYTE 255) # BIGNUM-BASE - 1
+
 (defn bignum/new []
   (buffer/new-filled 1))
 
@@ -18,8 +22,8 @@
   [x]
   (defn inc-at [loc]
     (let [val (get x loc 0)]
-      # If we see 255, we have to increment the next position
-      (if (= val 255)
+      # If we see max byte value, we have to increment the next position
+      (if (= val BIGNUM-MAX-BYTE)
         (do
           (set (x loc) 0)
           (inc-at (inc loc)))
@@ -40,7 +44,7 @@
       (case val
         0 (if (< loc (dec n))
             (do
-              (set (x loc) 255)
+              (set (x loc) BIGNUM-MAX-BYTE)
               (dec-at (inc loc)))
             x)
         1 (do
@@ -110,8 +114,8 @@
   (var tmp 0)
   (for i 0 n
     (set tmp (+ (get x i 0) (get y i 0) carry))
-    (set (z i) (% tmp 256))
-    (set carry (div tmp 256)))
+    (set (z i) (% tmp BIGNUM-BASE))
+    (set carry (div tmp BIGNUM-BASE)))
   (when (> carry 0)
     (buffer/push-byte z carry))
   z)
@@ -130,7 +134,7 @@
   (var tmp 0)
   (for i 0 n
     (set tmp (- (get x i 0) (get y i 0) carry))
-    (set (z i) (mod tmp 256))
+    (set (z i) (mod tmp BIGNUM-BASE))
     (set carry (if (< tmp 0) 1 0)))
   (case carry
     0 (bignum/trim z)
@@ -147,7 +151,7 @@
   (defn convert [digs num]
     (let [[lo & rest] digs]
       (if (empty? digs) num
-        (convert rest (+ lo (* 256 num))))))
+        (convert rest (+ lo (* BIGNUM-BASE num))))))
   (convert (reverse (bignum/digits x)) 0))
 
 (test (bignum/to-num (bignum/from-num 1000)) 1000)
