@@ -89,14 +89,26 @@
         (case inst
           :inc (if a
                  # if we have an explicit next, set it
-                 (put instructions i [inst reg (if (number? a) (+ me a) (get extra-labels a))])
+                 (let [target (if (number? a) (+ me a) (get extra-labels a))]
+                   (unless target
+                     (errorf "Invalid jump target '%s' at instruction %d" a i))
+                   (put instructions i [inst reg target]))
                  # otherwise goto next by default
                  (put instructions i [inst reg (inc me)]))
           :deb (if b
                  # deb with two instructions, treat them as jmp then nxt
-                 (put instructions i [inst reg (if (number? a) (+ me a) (get extra-labels a)) (if (number? b) (+ me b) (get extra-labels b))])
+                 (let [target-a (if (number? a) (+ me a) (get extra-labels a))
+                       target-b (if (number? b) (+ me b) (get extra-labels b))]
+                   (unless target-a
+                     (errorf "Invalid jump target '%s' at instruction %d" a i))
+                   (unless target-b
+                     (errorf "Invalid jump target '%s' at instruction %d" b i))
+                   (put instructions i [inst reg target-a target-b]))
                  # otherwise only one argument, treat it as the jmp
-                 (put instructions i [inst reg (if (number? a) (+ me a) (get extra-labels a)) (inc me)])))))
+                 (let [target (if (number? a) (+ me a) (get extra-labels a))]
+                   (unless target
+                     (errorf "Invalid jump target '%s' at instruction %d" a i))
+                   (put instructions i [inst reg target (inc me)]))))))
     program))
 
 (defn add-done
@@ -149,15 +161,18 @@
   (default scope (string flname "-" loc))
   (let [path (path/join root (string flname ".bc"))
         [aliases values] (separate-regs-and-values regs)]
-    (-> (slurp path)
-        parse
-        (replace-registers scope (table ;aliases))
-        (read-labels-and-registers start)
-        (set-initial-values values scope)
-        (replace-labels (table ;labels) original-labels)
-        (replace-jumps start (inc loc))
-        (add-done loc)
-        (replace-use root start))))
+    (try
+      (-> (slurp path)
+          parse
+          (replace-registers scope (table ;aliases))
+          (read-labels-and-registers start)
+          (set-initial-values values scope)
+          (replace-labels (table ;labels) original-labels)
+          (replace-jumps start (inc loc))
+          (add-done loc)
+          (replace-use root start))
+      ([err]
+        (errorf "Failed to load file '%s': %s" path err)))))
 
 (defn replace-use
   "Replace all of the use commands"

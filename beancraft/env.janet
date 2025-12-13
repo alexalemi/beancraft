@@ -5,10 +5,13 @@
 # instructions are :inc :deb and :end
 # :inc register next
 # :deb register jump next
-# :end 
+# :end
+
+# Default maximum steps for program execution
+(def DEFAULT-MAX-STEPS 10_000)
 
 (defdyn *MAX-STEPS*)
-(setdyn *MAX-STEPS* 10_000)
+(setdyn *MAX-STEPS* DEFAULT-MAX-STEPS)
 
 (def empty-env
   {:instructions [] # array of instructions
@@ -27,19 +30,36 @@
          :halted halted} env]
     (if halted
       env
-      (let [[inst reg a b] (get instructions lbl)]
-        (case inst
-          :inc (do (update registers reg inc)
-                 (put env :pointer a))
-          :deb (let [x (registers reg)]
-                 (if (> x 0)
-                   # its positive, so decrement and goto next=b
-                   (do
-                     (update registers reg dec)
-                     (put env :pointer b))
-                   # jump to a
-                   (put env :pointer a)))
-          :end (put env :halted true))))
+      (do
+        # Validate instruction pointer is within bounds
+        (unless (and (>= lbl 0) (< lbl (length instructions)))
+          (errorf "Instruction pointer %d out of bounds (0-%d)" lbl (dec (length instructions))))
+
+        (let [instruction (get instructions lbl)]
+          (unless instruction
+            (errorf "No instruction at position %d" lbl))
+
+          (let [[inst reg a b] instruction]
+            # Validate register exists
+            (unless (has-key? registers reg)
+              (errorf "Register '%s' not found at instruction %d" reg lbl))
+
+            (case inst
+              :inc (do (update registers reg inc)
+                     (put env :pointer a))
+              :deb (let [x (registers reg)]
+                     # Validate register value is numeric
+                     (unless (number? x)
+                       (errorf "Register '%s' has non-numeric value at instruction %d" reg lbl))
+                     (if (> x 0)
+                       # its positive, so decrement and goto next=b
+                       (do
+                         (update registers reg dec)
+                         (put env :pointer b))
+                       # jump to a
+                       (put env :pointer a)))
+              :end (put env :halted true)
+              (errorf "Unknown instruction type '%s' at position %d" inst lbl)))))))
     env))
 
 (defn run
@@ -59,10 +79,3 @@
     :registers (table/clone (env :registers))
     :pointer (env :pointer)
     :halted (env :halted)})
-
-(comment
-  (def adder @{:instructions [[:deb :A 1 2] [:inc :B 0] [:end]]
-               :registers @{:A 5 :B 3}
-               :pointer 0
-               :halted false})
-  [adder (run (clone adder))])
