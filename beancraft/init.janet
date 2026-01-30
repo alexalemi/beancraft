@@ -33,6 +33,9 @@
           :help "Use JIT compilation for faster execution"}
    "no-optimize" {:kind :flag
                   :help "Disable loop optimizations in JIT mode"}
+   "bignum" {:kind :flag
+             :short "b"
+             :help "Use arbitrary-precision integers (bignums) in JIT mode"}
    "show-jit" {:kind :flag
                :help "Show generated JIT code and exit"}
    "show-optimizations" {:kind :flag
@@ -188,8 +191,9 @@
 
   # JIT execution path
   (when (parsed "jit")
+    (def use-bignum (parsed "bignum"))
     (def start-time (os/clock))
-    (def result (jit-run program max-steps optimize))
+    (def result (jit-run program max-steps optimize use-bignum))
     (def elapsed (- (os/clock) start-time))
 
     (print "Final registers:")
@@ -197,8 +201,8 @@
 
     (when (parsed "verbose")
       (print)
-      (printf "Execution (JIT%s): %d steps in %.3f seconds"
-              (if optimize "+opt" "") (result :steps) elapsed)
+      (printf "Execution (JIT%s%s): %d steps in %.3f seconds"
+              (if optimize "+opt" "") (if use-bignum "+bignum" "") (result :steps) elapsed)
       (when (>= (result :steps) max-steps)
         (printf "  (stopped at max-steps limit: %d)" max-steps))
       (unless (result :halted)

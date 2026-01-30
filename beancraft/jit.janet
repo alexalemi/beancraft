@@ -11,8 +11,12 @@
 # - Transfer loops (deb A; inc B) become: B += A; A = 0
 # - Clear loops (deb A; loop) become: A = 0
 # - Add patterns become: Out += A + B; A = 0; B = 0
+#
+# Bignum mode: Use arbitrary-precision integers for registers.
+# This allows computation with numbers larger than Janet's native int64.
 
 (use ./optimize)
+(use ./bignum)
 
 (def DEFAULT-JIT-MAX-STEPS 10_000_000)
 
@@ -54,6 +58,39 @@
   (eachp [name _] registers
     (array/push pairs name)
     (array/push pairs (sym-map name)))
+  ~(table ,;pairs))
+
+# ============================================================
+# Bignum-aware code generation
+# ============================================================
+
+(defn- generate-bignum-reg-init
+  "Generate bignum variable initialization for a register."
+  [reg-name value sym-map]
+  (def sym (sym-map reg-name))
+  ~(var ,sym (bignum/from-num ,value)))
+
+(defn- generate-bignum-instruction
+  "Generate Janet code for a single instruction using bignums."
+  [idx inst sym-map]
+  (let [[op reg a b] inst
+        reg-sym (sym-map reg)]
+    (case op
+      :inc ~(,idx (do (bignum/inc ,reg-sym) (set _pc ,a)))
+      :deb ~(,idx (if (not (bignum/zero? ,reg-sym))
+                    (do (bignum/dec ,reg-sym) (set _pc ,b))
+                    (set _pc ,a)))
+      :end ~(,idx (set _halted true))
+      # Default: treat as halt
+      ~(,idx (set _halted true)))))
+
+(defn- generate-bignum-result-table
+  "Generate code to build the result register table, converting bignums to numbers."
+  [registers sym-map]
+  (def pairs @[])
+  (eachp [name _] registers
+    (array/push pairs name)
+    (array/push pairs ~(bignum/to-num ,(sym-map name))))
   ~(table ,;pairs))
 
 (defn compile-to-janet
@@ -174,18 +211,71 @@
      sym-map
      analysis]))
 
+(defn compile-to-janet-bignum
+  "Compile a beancraft program to Janet code using bignums.
+
+   Returns a tuple of [code sym-map] where:
+   - code is Janet source that can be evaluated
+   - sym-map maps register names to their symbols"
+  [program]
+  (let [{:instructions instructions :registers registers} program
+
+        # Create symbol mapping for all registers
+        sym-map (tabseq [name :keys registers]
+                  name (safe-symbol name))
+
+        # Generate variable initializations with bignums
+        var-inits (seq [[name val] :pairs registers]
+                    (generate-bignum-reg-init name val sym-map))
+
+        # Generate case branches for each instruction
+        cases (seq [i :range [0 (length instructions)]]
+                (generate-bignum-instruction i (instructions i) sym-map))
+
+        # Flatten cases for the case statement
+        flat-cases (mapcat tuple cases)
+
+        # Generate result table construction
+        result-expr (generate-bignum-result-table registers sym-map)]
+
+    [~(fn [max-steps]
+        # Initialize registers as bignum local variables
+        ,;var-inits
+
+        # Program counter and state
+        (var _pc 0)
+        (var _halted false)
+        (var _steps 0)
+
+        # Main execution loop
+        (while (and (not _halted) (< _steps max-steps))
+          (++ _steps)
+          (case _pc
+            ,;flat-cases
+            # Default case: halt on invalid PC
+            (set _halted true)))
+
+        # Return results (convert bignums to numbers)
+        {:registers ,result-expr
+         :steps _steps
+         :halted _halted})
+     sym-map]))
+
 (defn jit-compile
   "Compile a beancraft program to an executable Janet function.
 
    Options:
    - optimize: Enable loop optimizations (default: true)
+   - bignum: Use arbitrary-precision integers (default: false)
 
    Returns a function that takes [max-steps] and returns
    {:registers table :steps number :halted boolean}"
-  [program &opt optimize]
+  [program &opt optimize bignum]
   (default optimize true)
-  (let [[code _ _] (if optimize
-                     (compile-to-janet-optimized program)
+  (default bignum false)
+  (let [[code _ _] (cond
+                     bignum (let [[c s] (compile-to-janet-bignum program)] [c s nil])
+                     optimize (compile-to-janet-optimized program)
                      (let [[c s] (compile-to-janet program)] [c s nil]))]
     (eval code)))
 
@@ -195,12 +285,14 @@
    Options:
    - max-steps: Maximum steps before stopping (default: 10,000,000)
    - optimize: Enable loop optimizations (default: true)
+   - bignum: Use arbitrary-precision integers (default: false)
 
    Returns {:registers table :steps number :halted boolean}"
-  [program &opt max-steps optimize]
+  [program &opt max-steps optimize bignum]
   (default max-steps DEFAULT-JIT-MAX-STEPS)
   (default optimize true)
-  (let [compiled-fn (jit-compile program optimize)]
+  (default bignum false)
+  (let [compiled-fn (jit-compile program optimize bignum)]
     (compiled-fn max-steps)))
 
 (defn show-generated-code

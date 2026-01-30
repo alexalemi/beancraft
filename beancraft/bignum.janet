@@ -84,6 +84,16 @@
 (defn bignum/= [x y]
   (deep= x y))
 
+(defn bignum/zero?
+  "Check if a bignum is zero."
+  [x]
+  (and (= (length x) 1) (= (get x 0) 0)))
+
+(test (bignum/zero? (zero)) true)
+(test (bignum/zero? (bignum/inc (zero))) false)
+(test (bignum/zero? (bignum/from-num 0)) true)
+(test (bignum/zero? (bignum/from-num 1)) false)
+
 (defn bignum/digits [x]
   (seq [i :range [0 (length x)]]
     (get x i)))
