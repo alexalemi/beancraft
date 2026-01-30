@@ -3,6 +3,7 @@
 
 (use ./parse)
 (use ./env)
+(use ./jit)
 (use spork)
 (import spork/argparse :prefix "")
 
@@ -26,6 +27,11 @@
    "verbose" {:kind :flag
               :short "v"
               :help "Verbose output - show step count after execution"}
+   "jit" {:kind :flag
+          :short "j"
+          :help "Use JIT compilation for faster execution"}
+   "show-jit" {:kind :flag
+               :help "Show generated JIT code and exit"}
    :default {:kind :accumulate
              :help "Program file followed by REG=VALUE assignments"}])
 
@@ -141,21 +147,47 @@
     (print-registers (program :registers) "  ")
     (os/exit 0))
 
-  # Set max steps if specified
+  # --show-jit: show generated code and exit
+  (when (parsed "show-jit")
+    (print "Generated JIT code:")
+    (print (show-generated-code program))
+    (os/exit 0))
+
+  # Determine max steps
+  (var max-steps (dyn *MAX-STEPS*))
   (when-let [max-str (parsed "max-steps")]
     (if-let [max-val (scan-number max-str)]
-      (setdyn *MAX-STEPS* max-val)
+      (set max-steps max-val)
       (do
         (eprintf "Error: Invalid max-steps value '%s'" max-str)
         (os/exit 1))))
 
-  # Run the program
+  # JIT execution path
+  (when (parsed "jit")
+    (def start-time (os/clock))
+    (def result (jit-run program max-steps))
+    (def elapsed (- (os/clock) start-time))
+
+    (print "Final registers:")
+    (print-registers (result :registers) "  ")
+
+    (when (parsed "verbose")
+      (print)
+      (printf "Execution (JIT): %d steps in %.3f seconds" (result :steps) elapsed)
+      (when (>= (result :steps) max-steps)
+        (printf "  (stopped at max-steps limit: %d)" max-steps))
+      (unless (result :halted)
+        (print "  Warning: Program did not halt")))
+
+    (os/exit 0))
+
+  # Standard interpreter execution
   (var env (clone program))
   (def start-time (os/clock))
   (var steps 0)
 
   (while (and (not (env :halted))
-              (< steps (dyn *MAX-STEPS*)))
+              (< steps max-steps))
     (set env (step env))
     (++ steps))
 
@@ -169,7 +201,7 @@
   (when (parsed "verbose")
     (print)
     (printf "Execution: %d steps in %.3f seconds" steps elapsed)
-    (when (>= steps (dyn *MAX-STEPS*))
-      (printf "  (stopped at max-steps limit: %d)" (dyn *MAX-STEPS*)))
+    (when (>= steps max-steps)
+      (printf "  (stopped at max-steps limit: %d)" max-steps))
     (unless (env :halted)
       (print "  Warning: Program did not halt"))))
