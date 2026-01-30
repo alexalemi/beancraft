@@ -217,20 +217,24 @@
   [program]
   (let [analysis (analyze-program program)
         loops (analysis :loops)
-        adds (analysis :adds)]
+        multi-transfers (get analysis :multi-transfers @[])
+        adds (analysis :adds)
+        copies (get analysis :copies @[])]
     (print "Optimization Analysis:")
     (printf "  Instructions: %d" (analysis :instruction-count))
-    (printf "  Loops detected: %d" (length loops))
+    (printf "  Simple loops: %d" (length loops))
+    (printf "  Multi-transfers: %d" (length multi-transfers))
     (printf "  Add patterns: %d" (length adds))
+    (printf "  Copy patterns: %d" (length copies))
     (print)
-    (when (> (length loops) 0)
-      (print "Loops:")
-      (each loop loops
-        (case (loop :type)
-          :transfer (printf "  [%d] Transfer: %s -> %s (exit: %d)"
-                           (loop :start) (loop :src-reg) (loop :dst-reg) (loop :exit))
-          :clear (printf "  [%d] Clear: %s (exit: %d)"
-                        (loop :start) (loop :reg) (loop :exit)))))
+
+    (when (> (length copies) 0)
+      (print "Copy patterns (preserves source):")
+      (each copy copies
+        (printf "  [%d] Copy: %s -> %s (using tmp: %s, exit: %d)"
+               (copy :start) (copy :src-reg) (copy :dst-reg)
+               (copy :tmp-reg) (copy :exit))))
+
     (when (> (length adds) 0)
       (print "Add patterns:")
       (each add adds
@@ -240,4 +244,22 @@
                (get-in add [:src-regs 1])
                (add :dst-reg)
                (add :exit))))
+
+    (when (> (length multi-transfers) 0)
+      (print "Multi-transfers:")
+      (each mt multi-transfers
+        (printf "  [%d] Transfer: %s -> %s (exit: %d)"
+               (mt :start) (mt :src-reg)
+               (string/join (map string (mt :dst-regs)) ", ")
+               (mt :exit))))
+
+    (when (> (length loops) 0)
+      (print "Simple loops:")
+      (each loop loops
+        (case (loop :type)
+          :transfer (printf "  [%d] Transfer: %s -> %s (exit: %d)"
+                           (loop :start) (loop :src-reg) (loop :dst-reg) (loop :exit))
+          :clear (printf "  [%d] Clear: %s (exit: %d)"
+                        (loop :start) (loop :reg) (loop :exit)))))
+
     analysis))

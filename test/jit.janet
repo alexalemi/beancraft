@@ -158,3 +158,70 @@ done: end`)
 # These would be very slow without optimization
 (test (test-mul-large 100 100) 10000)
 (test (test-mul-large 50 200) 10000)
+
+# ============================================================
+# Multi-transfer and Copy pattern tests
+# ============================================================
+
+# Test multi-transfer detection (deb A; inc B; inc C; loop)
+(def multi-transfer-prog `
+loop: deb A done
+inc B
+inc C loop
+done: end`)
+
+(defn test-multi-transfer-detection []
+  (let [program (compile multi-transfer-prog)
+        analysis (analyze-program program)]
+    (= 1 (length (get analysis :multi-transfers @[])))))
+
+(test (test-multi-transfer-detection) true)
+
+# Test multi-transfer execution
+(defn test-multi-transfer-exec [a]
+  (let [program (compile multi-transfer-prog)
+        _ (merge-into (program :registers) @{"A" a "B" 0 "C" 0})
+        result (jit-run program nil true)]
+    [(get (result :registers) "A")
+     (get (result :registers) "B")
+     (get (result :registers) "C")]))
+
+(test (test-multi-transfer-exec 10) [0 10 10])
+(test (test-multi-transfer-exec 100) [0 100 100])
+
+# Test copy pattern detection (copy.bc uses this pattern)
+(defn test-copy-detection []
+  (let [program (compile (slurp (path/join examples-path "copy.bc")) examples-path)
+        analysis (analyze-program program)]
+    # Should detect the copy pattern
+    (> (length (get analysis :copies @[])) 0)))
+
+# Note: copy.bc starts with clearing tmp, which may affect pattern detection
+# The copy pattern is: multi-transfer to (To, tmp) followed by restore from tmp to From
+
+# Test that copy produces correct results
+(defn test-copy-exec [from to]
+  (let [result (example-jit-runner "copy.bc" @{"From" from "To" to})]
+    [(get (result :registers) "From")
+     (get (result :registers) "To")]))
+
+# copy.bc should: To += From, From preserved
+(test (test-copy-exec 10 0) [10 10])
+(test (test-copy-exec 10 5) [10 15])
+(test (test-copy-exec 100 50) [100 150])
+
+# Test that optimized copy is faster
+(defn test-copy-optimization-speedup []
+  (let [program1 (compile (slurp (path/join examples-path "copy.bc")) examples-path)
+        _ (merge-into (program1 :registers) @{"From" 1000 "To" 0})
+        opt-result (jit-run program1 nil true)
+        program2 (compile (slurp (path/join examples-path "copy.bc")) examples-path)
+        _ (merge-into (program2 :registers) @{"From" 1000 "To" 0})
+        unopt-result (jit-run program2 nil false)]
+    # Both should produce correct result
+    (and (= (get (opt-result :registers) "To") 1000)
+         (= (get (unopt-result :registers) "To") 1000)
+         # And optimized should be faster (fewer steps)
+         (< (opt-result :steps) (unopt-result :steps)))))
+
+(test (test-copy-optimization-speedup) true)
