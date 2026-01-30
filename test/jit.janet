@@ -2,6 +2,7 @@
 
 (use ../beancraft/parse)
 (use ../beancraft/jit)
+(use ../beancraft/optimize)
 (use judge)
 (use spork)
 
@@ -13,10 +14,11 @@ inc Out prev
 other: deb B halt
 inc Out prev`)
 
-(defn jit-runner [s registers]
+(defn jit-runner [s registers &opt optimize]
+  (default optimize true)
   (let [program (compile s)]
     (merge-into (get program :registers) registers)
-    (jit-run program)))
+    (jit-run program nil optimize)))
 
 (defn test-jit-adder [a b]
   (let [result (jit-runner adder @{"A" a "B" b})]
@@ -72,3 +74,87 @@ inc Out prev`)
 (test (jit-copy-runner 10 5) {"From" 10 "To" 15})
 (test (jit-copy-runner 10 0) {"From" 10 "To" 10})
 (test (jit-copy-runner 13 0) {"From" 13 "To" 13})
+
+# ============================================================
+# Optimizer tests
+# ============================================================
+
+# Test that optimizer detects transfer loops
+(defn test-optimizer-detection []
+  (let [program (compile adder)
+        analysis (analyze-program program)]
+    # Should detect 2 transfer loops (A->Out and B->Out)
+    (= 2 (length (analysis :loops)))))
+
+(test (test-optimizer-detection) true)
+
+# Test that optimized and unoptimized produce same results
+(defn test-opt-vs-unopt [a b]
+  (let [program (compile adder)
+        _ (merge-into (program :registers) @{"A" a "B" b})
+        opt-result (jit-run program nil true)
+        program2 (compile adder)
+        _ (merge-into (program2 :registers) @{"A" a "B" b})
+        unopt-result (jit-run program2 nil false)]
+    (= ((opt-result :registers) "Out")
+       ((unopt-result :registers) "Out"))))
+
+(test (test-opt-vs-unopt 10 15) true)
+(test (test-opt-vs-unopt 100 200) true)
+(test (test-opt-vs-unopt 0 50) true)
+
+# Test that optimization reduces step count
+(defn test-opt-reduces-steps [a b]
+  (let [program (compile adder)
+        _ (merge-into (program :registers) @{"A" a "B" b})
+        opt-result (jit-run program nil true)
+        program2 (compile adder)
+        _ (merge-into (program2 :registers) @{"A" a "B" b})
+        unopt-result (jit-run program2 nil false)]
+    # Optimized should take fewer steps
+    (< (opt-result :steps) (unopt-result :steps))))
+
+(test (test-opt-reduces-steps 100 100) true)
+(test (test-opt-reduces-steps 1000 1000) true)
+
+# Test clear loop detection
+(def clearer `loop: deb A done self
+done: end`)
+
+(defn test-clear-loop []
+  (let [program (compile clearer)
+        analysis (analyze-program program)]
+    # Should detect 1 clear loop
+    (and (= 1 (length (analysis :loops)))
+         (= :clear (get-in analysis [:loops 0 :type])))))
+
+(test (test-clear-loop) true)
+
+# Test clear loop execution
+(defn test-clear-execution [a]
+  (let [program (compile clearer)
+        _ (merge-into (program :registers) @{"A" a})
+        result (jit-run program nil true)]
+    ((result :registers) "A")))
+
+(test (test-clear-execution 100) 0)
+(test (test-clear-execution 0) 0)
+(test (test-clear-execution 10000) 0)
+
+# Test add pattern detection
+(defn test-add-pattern-detection []
+  (let [program (compile adder)
+        analysis (analyze-program program)]
+    # Should detect the add pattern (two transfers to Out)
+    (= 1 (length (analysis :adds)))))
+
+(test (test-add-pattern-detection) true)
+
+# Test multiplication with large values (would timeout without optimization)
+(defn test-mul-large [a b]
+  (let [result (example-jit-runner "mul.bc" @{"A" a "B" b})]
+    ((result :registers) "Out")))
+
+# These would be very slow without optimization
+(test (test-mul-large 100 100) 10000)
+(test (test-mul-large 50 200) 10000)

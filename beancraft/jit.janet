@@ -5,6 +5,14 @@
 # - No hash table lookups for registers (uses local variables)
 # - No bounds checking per instruction (pre-validated)
 # - No case dispatch overhead (direct jumps via case)
+#
+# With optimization enabled, common loop patterns are detected and replaced
+# with O(1) operations:
+# - Transfer loops (deb A; inc B) become: B += A; A = 0
+# - Clear loops (deb A; loop) become: A = 0
+# - Add patterns become: Out += A + B; A = 0; B = 0
+
+(use ./optimize)
 
 (def DEFAULT-JIT-MAX-STEPS 10_000_000)
 
@@ -101,13 +109,84 @@
          :halted _halted})
      sym-map]))
 
+(defn compile-to-janet-optimized
+  "Compile a beancraft program to optimized Janet code.
+
+   Detects loop patterns and replaces them with O(1) operations.
+   Returns a tuple of [code sym-map analysis] where:
+   - code is Janet source that can be evaluated
+   - sym-map maps register names to their symbols
+   - analysis contains detected optimization opportunities"
+  [program]
+  (let [{:instructions instructions :registers registers} program
+
+        # Analyze the program for optimization opportunities
+        analysis (analyze-program program)
+        opt-starts (get-optimized-starts analysis)
+
+        # Create symbol mapping for all registers
+        sym-map (tabseq [name :keys registers]
+                  name (safe-symbol name))
+
+        # Generate variable initializations
+        var-inits (seq [[name val] :pairs registers]
+                    (generate-reg-init name val sym-map))
+
+        # Generate case branches, using optimizations where available
+        cases (seq [i :range [0 (length instructions)]]
+                (if-let [opt-info (get opt-starts i)]
+                  # This instruction starts an optimized pattern
+                  (let [[opt-code _] (generate-optimized-instruction
+                                       i instructions analysis sym-map)]
+                    (if opt-code
+                      ~(,i ,opt-code)
+                      (generate-instruction i (instructions i) sym-map)))
+                  # Regular instruction
+                  (generate-instruction i (instructions i) sym-map)))
+
+        # Flatten cases for the case statement
+        flat-cases (mapcat tuple cases)
+
+        # Generate result table construction
+        result-expr (generate-result-table registers sym-map)]
+
+    [~(fn [max-steps]
+        # Initialize registers as local variables
+        ,;var-inits
+
+        # Program counter and state
+        (var _pc 0)
+        (var _halted false)
+        (var _steps 0)
+
+        # Main execution loop
+        (while (and (not _halted) (< _steps max-steps))
+          (++ _steps)
+          (case _pc
+            ,;flat-cases
+            # Default case: halt on invalid PC
+            (set _halted true)))
+
+        # Return results
+        {:registers ,result-expr
+         :steps _steps
+         :halted _halted})
+     sym-map
+     analysis]))
+
 (defn jit-compile
   "Compile a beancraft program to an executable Janet function.
 
+   Options:
+   - optimize: Enable loop optimizations (default: true)
+
    Returns a function that takes [max-steps] and returns
    {:registers table :steps number :halted boolean}"
-  [program]
-  (let [[code _] (compile-to-janet program)]
+  [program &opt optimize]
+  (default optimize true)
+  (let [[code _ _] (if optimize
+                     (compile-to-janet-optimized program)
+                     (let [[c s] (compile-to-janet program)] [c s nil]))]
     (eval code)))
 
 (defn jit-run
@@ -115,15 +194,50 @@
 
    Options:
    - max-steps: Maximum steps before stopping (default: 10,000,000)
+   - optimize: Enable loop optimizations (default: true)
 
    Returns {:registers table :steps number :halted boolean}"
-  [program &opt max-steps]
+  [program &opt max-steps optimize]
   (default max-steps DEFAULT-JIT-MAX-STEPS)
-  (let [compiled-fn (jit-compile program)]
+  (default optimize true)
+  (let [compiled-fn (jit-compile program optimize)]
     (compiled-fn max-steps)))
 
 (defn show-generated-code
   "Show the generated Janet code for debugging/inspection."
-  [program]
-  (let [[code _] (compile-to-janet program)]
+  [program &opt optimize]
+  (default optimize true)
+  (let [[code _ _] (if optimize
+                     (compile-to-janet-optimized program)
+                     (let [[c s] (compile-to-janet program)] [c s nil]))]
     (string/format "%j" code)))
+
+(defn show-optimizations
+  "Show what optimizations were detected in the program."
+  [program]
+  (let [analysis (analyze-program program)
+        loops (analysis :loops)
+        adds (analysis :adds)]
+    (print "Optimization Analysis:")
+    (printf "  Instructions: %d" (analysis :instruction-count))
+    (printf "  Loops detected: %d" (length loops))
+    (printf "  Add patterns: %d" (length adds))
+    (print)
+    (when (> (length loops) 0)
+      (print "Loops:")
+      (each loop loops
+        (case (loop :type)
+          :transfer (printf "  [%d] Transfer: %s -> %s (exit: %d)"
+                           (loop :start) (loop :src-reg) (loop :dst-reg) (loop :exit))
+          :clear (printf "  [%d] Clear: %s (exit: %d)"
+                        (loop :start) (loop :reg) (loop :exit)))))
+    (when (> (length adds) 0)
+      (print "Add patterns:")
+      (each add adds
+        (printf "  [%d] Add: %s + %s -> %s (exit: %d)"
+               (get-in add [:first-loop :start])
+               (get-in add [:src-regs 0])
+               (get-in add [:src-regs 1])
+               (add :dst-reg)
+               (add :exit))))
+    analysis))

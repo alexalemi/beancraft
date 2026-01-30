@@ -30,8 +30,13 @@
    "jit" {:kind :flag
           :short "j"
           :help "Use JIT compilation for faster execution"}
+   "no-optimize" {:kind :flag
+                  :help "Disable loop optimizations in JIT mode"}
    "show-jit" {:kind :flag
                :help "Show generated JIT code and exit"}
+   "show-optimizations" {:kind :flag
+                         :short "O"
+                         :help "Show detected optimization opportunities and exit"}
    :default {:kind :accumulate
              :help "Program file followed by REG=VALUE assignments"}])
 
@@ -147,10 +152,18 @@
     (print-registers (program :registers) "  ")
     (os/exit 0))
 
+  # Determine if optimization is enabled
+  (def optimize (not (parsed "no-optimize")))
+
+  # --show-optimizations: show detected patterns and exit
+  (when (parsed "show-optimizations")
+    (show-optimizations program)
+    (os/exit 0))
+
   # --show-jit: show generated code and exit
   (when (parsed "show-jit")
     (print "Generated JIT code:")
-    (print (show-generated-code program))
+    (print (show-generated-code program optimize))
     (os/exit 0))
 
   # Determine max steps
@@ -165,7 +178,7 @@
   # JIT execution path
   (when (parsed "jit")
     (def start-time (os/clock))
-    (def result (jit-run program max-steps))
+    (def result (jit-run program max-steps optimize))
     (def elapsed (- (os/clock) start-time))
 
     (print "Final registers:")
@@ -173,7 +186,8 @@
 
     (when (parsed "verbose")
       (print)
-      (printf "Execution (JIT): %d steps in %.3f seconds" (result :steps) elapsed)
+      (printf "Execution (JIT%s): %d steps in %.3f seconds"
+              (if optimize "+opt" "") (result :steps) elapsed)
       (when (>= (result :steps) max-steps)
         (printf "  (stopped at max-steps limit: %d)" max-steps))
       (unless (result :halted)
