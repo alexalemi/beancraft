@@ -10,8 +10,7 @@
 
 (use spork)
 (use judge)
-
-(def BEANCRAFT-ROOT (os/getenv "BEANCRAFTROOT" "~/.beancraft/"))
+(use ./loader)
 
 (def grammar
   ~{:commands (+ "load" "func")
@@ -156,23 +155,27 @@
   program)
 
 (defn compile-use
-  "Compiler passes for a use command."
+  "Compiler passes for a use command.
+   Uses the module loader for path resolution and caching."
   [flname root loc start scope regs labels original-labels replace-use]
   (default scope (string flname "-" loc))
-  (let [path (path/join root (string flname ".bc"))
-        [aliases values] (separate-regs-and-values regs)]
+  (let [[aliases values] (separate-regs-and-values regs)]
     (try
-      (-> (slurp path)
-          parse
-          (replace-registers scope (table ;aliases))
-          (read-labels-and-registers start)
-          (set-initial-values values scope)
-          (replace-labels (table ;labels) original-labels)
-          (replace-jumps start (inc loc))
-          (add-done loc)
-          (replace-use root start))
+      (let [source (load-module flname root)
+            # Get the directory of the loaded module for nested imports
+            module-dir (get-module-dir flname root)]
+        (-> source
+            parse
+            (replace-registers scope (table ;aliases))
+            (read-labels-and-registers start)
+            (set-initial-values values scope)
+            (replace-labels (table ;labels) original-labels)
+            (replace-jumps start (inc loc))
+            (add-done loc)
+            # Use the module's directory for nested imports
+            (replace-use (or module-dir root) start)))
       ([err]
-        (errorf "Failed to load file '%s': %s" path err)))))
+        (errorf "Failed to load module '%s' from '%s': %s" flname root err)))))
 
 (defn replace-use
   "Replace all of the use commands"
@@ -192,10 +195,15 @@
 
 (defn compile
   "Compiler passes
-  
-  Takes a sugar version and compiles to a simple program."
+
+  Takes a sugar version and compiles to a simple program.
+
+  The optional path argument specifies the base directory for resolving
+  module imports. If not provided, uses the default search paths."
   [s &opt path]
-  (default path BEANCRAFT-ROOT)
+  (default path nil)
+  # Clear the module cache for a fresh compile
+  (clear-cache)
   (-> s
       parse
       # first read out all of the labels and registers

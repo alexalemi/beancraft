@@ -4,6 +4,7 @@
 (use ./parse)
 (use ./env)
 (use ./jit)
+(use ./loader)
 (use spork)
 (import spork/argparse :prefix "")
 
@@ -37,6 +38,9 @@
    "show-optimizations" {:kind :flag
                          :short "O"
                          :help "Show detected optimization opportunities and exit"}
+   "show-paths" {:kind :flag
+                 :short "P"
+                 :help "Show module search paths and exit"}
    :default {:kind :accumulate
              :help "Program file followed by REG=VALUE assignments"}])
 
@@ -98,6 +102,13 @@
   [& args]
   (def parsed (argparse ;argparse-params))
   (unless parsed (os/exit 1))
+
+  # --show-paths: show module search paths and exit
+  (when (parsed "show-paths")
+    (def fname (get-program-file parsed))
+    (def base-path (when fname (path/dirname fname)))
+    (list-search-paths base-path)
+    (os/exit 0))
 
   (def fname (get-program-file parsed))
   (unless fname
