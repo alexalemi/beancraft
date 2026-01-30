@@ -199,7 +199,6 @@ test/             # Test suite
 ## Future Work
 
 - Multiplication pattern detection (nested loops)
-- Bignum optimizations in JIT (currently unoptimized)
 - More example programs (GCD, prime checker, etc.)
 - Standard library of common operations
 

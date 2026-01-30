@@ -225,3 +225,84 @@ done: end`)
          (< (opt-result :steps) (unopt-result :steps)))))
 
 (test (test-copy-optimization-speedup) true)
+
+# ============================================================
+# Bignum optimization tests
+# ============================================================
+
+# Test bignum with optimizations enabled
+(defn bignum-jit-runner [s registers &opt optimize]
+  (default optimize true)
+  (let [program (compile s)]
+    (merge-into (get program :registers) registers)
+    (jit-run program nil optimize true)))  # bignum=true
+
+# Test basic bignum addition with optimizations
+(defn test-bignum-opt-adder [a b]
+  (let [result (bignum-jit-runner adder @{"A" a "B" b})]
+    ((result :registers) "Out")))
+
+(test (test-bignum-opt-adder 10 15) 25)
+(test (test-bignum-opt-adder 100 200) 300)
+(test (test-bignum-opt-adder 0 50) 50)
+
+# Test that bignum optimized and unoptimized produce same results
+(defn test-bignum-opt-vs-unopt [a b]
+  (let [program (compile adder)
+        _ (merge-into (program :registers) @{"A" a "B" b})
+        opt-result (jit-run program nil true true)  # optimize=true, bignum=true
+        program2 (compile adder)
+        _ (merge-into (program2 :registers) @{"A" a "B" b})
+        unopt-result (jit-run program2 nil false true)]  # optimize=false, bignum=true
+    (= ((opt-result :registers) "Out")
+       ((unopt-result :registers) "Out"))))
+
+(test (test-bignum-opt-vs-unopt 10 15) true)
+(test (test-bignum-opt-vs-unopt 100 200) true)
+
+# Test that bignum optimization reduces step count
+(defn test-bignum-opt-reduces-steps [a b]
+  (let [program (compile adder)
+        _ (merge-into (program :registers) @{"A" a "B" b})
+        opt-result (jit-run program nil true true)
+        program2 (compile adder)
+        _ (merge-into (program2 :registers) @{"A" a "B" b})
+        unopt-result (jit-run program2 nil false true)]
+    # Optimized should take fewer steps
+    (< (opt-result :steps) (unopt-result :steps))))
+
+(test (test-bignum-opt-reduces-steps 100 100) true)
+
+# Test bignum clear loop optimization
+(defn test-bignum-clear-execution [a]
+  (let [program (compile clearer)
+        _ (merge-into (program :registers) @{"A" a})
+        result (jit-run program nil true true)]
+    ((result :registers) "A")))
+
+(test (test-bignum-clear-execution 100) 0)
+(test (test-bignum-clear-execution 1000) 0)
+
+# Test bignum multi-transfer optimization
+(defn test-bignum-multi-transfer-exec [a]
+  (let [program (compile multi-transfer-prog)
+        _ (merge-into (program :registers) @{"A" a "B" 0 "C" 0})
+        result (jit-run program nil true true)]
+    [(get (result :registers) "A")
+     (get (result :registers) "B")
+     (get (result :registers) "C")]))
+
+(test (test-bignum-multi-transfer-exec 10) [0 10 10])
+(test (test-bignum-multi-transfer-exec 100) [0 100 100])
+
+# Test bignum copy pattern
+(defn test-bignum-copy-exec [from to]
+  (let [program (compile (slurp (path/join examples-path "copy.bc")) examples-path)
+        _ (merge-into (program :registers) @{"From" from "To" to})
+        result (jit-run program nil true true)]
+    [(get (result :registers) "From")
+     (get (result :registers) "To")]))
+
+(test (test-bignum-copy-exec 10 0) [10 10])
+(test (test-bignum-copy-exec 10 5) [10 15])
+(test (test-bignum-copy-exec 100 50) [100 150])

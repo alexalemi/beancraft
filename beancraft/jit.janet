@@ -93,6 +93,136 @@
     (array/push pairs ~(bignum/to-num ,(sym-map name))))
   ~(table ,;pairs))
 
+# ============================================================
+# Bignum-aware optimized code generation
+# ============================================================
+
+(defn- generate-bignum-optimized-transfer
+  "Generate optimized code for a transfer loop using bignums.
+   Instead of looping, do: dst = dst + src; src = 0"
+  [loop-info sym-map]
+  (let [src-sym (sym-map (loop-info :src-reg))
+        dst-sym (sym-map (loop-info :dst-reg))
+        exit (loop-info :exit)]
+    ~(do
+       (set ,dst-sym (bignum/add ,dst-sym ,src-sym))
+       (set ,src-sym (bignum/from-num 0))
+       (set _pc ,exit))))
+
+(defn- generate-bignum-optimized-clear
+  "Generate optimized code for a clear loop using bignums.
+   Instead of looping, do: reg = 0"
+  [loop-info sym-map]
+  (let [reg-sym (sym-map (loop-info :reg))
+        exit (loop-info :exit)]
+    ~(do
+       (set ,reg-sym (bignum/from-num 0))
+       (set _pc ,exit))))
+
+(defn- generate-bignum-optimized-add
+  "Generate optimized code for an add pattern using bignums.
+   Instead of two transfer loops, do: dst = dst + src1 + src2; src1 = 0; src2 = 0"
+  [add-info sym-map]
+  (let [src1-sym (sym-map (get-in add-info [:src-regs 0]))
+        src2-sym (sym-map (get-in add-info [:src-regs 1]))
+        dst-sym (sym-map (add-info :dst-reg))
+        exit (add-info :exit)]
+    ~(do
+       (set ,dst-sym (bignum/add ,dst-sym ,src1-sym))
+       (set ,dst-sym (bignum/add ,dst-sym ,src2-sym))
+       (set ,src1-sym (bignum/from-num 0))
+       (set ,src2-sym (bignum/from-num 0))
+       (set _pc ,exit))))
+
+(defn- generate-bignum-optimized-copy
+  "Generate optimized code for a copy pattern using bignums.
+   Instead of multi-transfer + restore, do: dst = dst + src (src preserved)"
+  [copy-info sym-map]
+  (let [src-sym (sym-map (copy-info :src-reg))
+        dst-sym (sym-map (copy-info :dst-reg))
+        tmp-sym (sym-map (copy-info :tmp-reg))
+        exit (copy-info :exit)]
+    ~(do
+       (set ,dst-sym (bignum/add ,dst-sym ,src-sym))
+       # tmp is used internally but ends up at 0
+       (set ,tmp-sym (bignum/from-num 0))
+       (set _pc ,exit))))
+
+(defn- generate-bignum-optimized-multi-transfer
+  "Generate optimized code for a multi-target transfer using bignums.
+   Transfer src to all destinations in one step."
+  [mt-info sym-map]
+  (let [src-sym (sym-map (mt-info :src-reg))
+        dst-syms (map |(sym-map $) (mt-info :dst-regs))
+        exit (mt-info :exit)]
+    ~(do
+       ,;(map (fn [dst] ~(set ,dst (bignum/add ,dst ,src-sym))) dst-syms)
+       (set ,src-sym (bignum/from-num 0))
+       (set _pc ,exit))))
+
+(defn- generate-bignum-optimized-instruction
+  "Generate optimized code for an instruction using bignums.
+   Returns [code, skip-count] where skip-count is how many instructions to skip."
+  [idx instructions analysis sym-map]
+  (let [loops (analysis :loops)
+        adds (analysis :adds)
+        copies (analysis :copies)
+        multi-transfers (analysis :multi-transfers)]
+
+    # Check if this starts a copy pattern (highest priority - most complex)
+    (var found-copy nil)
+    (each copy copies
+      (when (= (copy :start) idx)
+        (set found-copy copy)
+        (break)))
+
+    (if found-copy
+      [(generate-bignum-optimized-copy found-copy sym-map) nil]
+
+      # Check if this starts an add pattern
+      (do
+        (var found-add nil)
+        (each add adds
+          (when (= (get-in add [:first-loop :start]) idx)
+            (set found-add add)
+            (break)))
+
+        (if found-add
+          [(generate-bignum-optimized-add found-add sym-map) nil]
+
+          # Check if this starts a multi-transfer (not part of a copy)
+          (do
+            (var found-mt nil)
+            (each mt multi-transfers
+              (when (= (mt :start) idx)
+                # Make sure it's not part of a copy pattern
+                (var in-copy false)
+                (each copy copies
+                  (when (= (get-in copy [:multi-transfer :start]) idx)
+                    (set in-copy true)
+                    (break)))
+                (unless in-copy
+                  (set found-mt mt)
+                  (break))))
+
+            (if found-mt
+              [(generate-bignum-optimized-multi-transfer found-mt sym-map) nil]
+
+              # Check if this starts a simple loop
+              (do
+                (var found-loop nil)
+                (each loop loops
+                  (when (= (loop :start) idx)
+                    (set found-loop loop)
+                    (break)))
+
+                (if found-loop
+                  (case (found-loop :type)
+                    :transfer [(generate-bignum-optimized-transfer found-loop sym-map) nil]
+                    :clear [(generate-bignum-optimized-clear found-loop sym-map) nil]
+                    [nil nil])
+                  [nil nil])))))))))
+
 (defn compile-to-janet
   "Compile a beancraft program to Janet code.
 
@@ -211,8 +341,73 @@
      sym-map
      analysis]))
 
+(defn compile-to-janet-bignum-optimized
+  "Compile a beancraft program to optimized Janet code using bignums.
+
+   Detects loop patterns and replaces them with O(1) bignum operations.
+   Returns a tuple of [code sym-map analysis] where:
+   - code is Janet source that can be evaluated
+   - sym-map maps register names to their symbols
+   - analysis contains detected optimization opportunities"
+  [program]
+  (let [{:instructions instructions :registers registers} program
+
+        # Analyze the program for optimization opportunities
+        analysis (analyze-program program)
+        opt-starts (get-optimized-starts analysis)
+
+        # Create symbol mapping for all registers
+        sym-map (tabseq [name :keys registers]
+                  name (safe-symbol name))
+
+        # Generate variable initializations with bignums
+        var-inits (seq [[name val] :pairs registers]
+                    (generate-bignum-reg-init name val sym-map))
+
+        # Generate case branches, using optimizations where available
+        cases (seq [i :range [0 (length instructions)]]
+                (if-let [opt-info (get opt-starts i)]
+                  # This instruction starts an optimized pattern
+                  (let [[opt-code _] (generate-bignum-optimized-instruction
+                                       i instructions analysis sym-map)]
+                    (if opt-code
+                      ~(,i ,opt-code)
+                      (generate-bignum-instruction i (instructions i) sym-map)))
+                  # Regular instruction
+                  (generate-bignum-instruction i (instructions i) sym-map)))
+
+        # Flatten cases for the case statement
+        flat-cases (mapcat tuple cases)
+
+        # Generate result table construction
+        result-expr (generate-bignum-result-table registers sym-map)]
+
+    [~(fn [max-steps]
+        # Initialize registers as bignum local variables
+        ,;var-inits
+
+        # Program counter and state
+        (var _pc 0)
+        (var _halted false)
+        (var _steps 0)
+
+        # Main execution loop
+        (while (and (not _halted) (< _steps max-steps))
+          (++ _steps)
+          (case _pc
+            ,;flat-cases
+            # Default case: halt on invalid PC
+            (set _halted true)))
+
+        # Return results (convert bignums to numbers)
+        {:registers ,result-expr
+         :steps _steps
+         :halted _halted})
+     sym-map
+     analysis]))
+
 (defn compile-to-janet-bignum
-  "Compile a beancraft program to Janet code using bignums.
+  "Compile a beancraft program to Janet code using bignums (unoptimized).
 
    Returns a tuple of [code sym-map] where:
    - code is Janet source that can be evaluated
@@ -274,6 +469,7 @@
   (default optimize true)
   (default bignum false)
   (let [[code _ _] (cond
+                     (and bignum optimize) (compile-to-janet-bignum-optimized program)
                      bignum (let [[c s] (compile-to-janet-bignum program)] [c s nil])
                      optimize (compile-to-janet-optimized program)
                      (let [[c s] (compile-to-janet program)] [c s nil]))]
